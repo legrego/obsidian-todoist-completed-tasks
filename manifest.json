@@ -1,11 +1,10 @@
 {
-	"id": "sample-plugin",
-	"name": "Sample Plugin",
+	"id": "obsidian-todoist-completed-tasks",
+	"name": "Todoist Completed Tasks",
 	"version": "1.0.0",
-	"minAppVersion": "0.15.0",
-	"description": "Demonstrates some of the capabilities of the Obsidian API.",
-	"author": "Obsidian",
-	"authorUrl": "https://obsidian.md",
-	"fundingUrl": "https://obsidian.md/pricing",
+	"minAppVersion": "1.0.0",
+	"description": "Fetches tasks completed today from Todoist and adds them to the current note.",
+	"author": "Your Name",
+	"authorUrl": "https://yourwebsite.com",
 	"isDesktopOnly": false
 }
