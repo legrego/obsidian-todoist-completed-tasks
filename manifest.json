@@ -1,10 +1,10 @@
 {
-	"id": "obsidian-todoist-completed-tasks",
+	"id": "todoist-completed-tasks",
 	"name": "Todoist Completed Tasks",
-	"version": "1.0.0",
-	"minAppVersion": "1.0.0",
+	"version": "1.0.1",
+	"minAppVersion": "1.8.0",
 	"description": "Fetches tasks completed today from Todoist and adds them to the current note.",
-	"author": "Your Name",
-	"authorUrl": "https://yourwebsite.com",
+	"author": "Larry Gregory",
+	"authorUrl": "https://github.com/legrego",
 	"isDesktopOnly": false
 }
