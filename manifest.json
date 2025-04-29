@@ -1,7 +1,7 @@
 {
 	"id": "todoist-completed-tasks",
-	"name": "Todoist Completed Tasks",
-	"version": "1.0.1",
+	"name": "Todoist completed tasks",
+	"version": "1.0.2",
 	"minAppVersion": "1.8.0",
 	"description": "Fetches tasks completed today from Todoist and adds them to the current note.",
 	"author": "Larry Gregory",
