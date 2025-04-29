@@ -17,7 +17,6 @@ const DEFAULT_SETTINGS: TodoistCompletedTasksSettings = {
 interface TodoistProject {
     id: string;
     name: string;
-    color: string;
 }
 
 interface TodoistProjectResponse {
@@ -101,7 +100,6 @@ export default class TodoistCompletedTasksPlugin extends Plugin {
             const data = response.json as TodoistProjectResponse;
             if (data && data.results) {
                 data.results.forEach((project: TodoistProject) => {
-                    new Notice(`Project {project.name} as color ${project.color}`);
                     projectsMap.set(project.id, project.name);
                 });
             }
