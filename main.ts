@@ -1,17 +1,16 @@
 import { App, Editor, MarkdownView, Notice, Plugin, PluginSettingTab, Setting, requestUrl } from 'obsidian';
-import { moment } from 'obsidian'; // Import moment for robust date handling
+import { moment } from 'obsidian';
 
 // Interface for plugin settings
 interface TodoistCompletedTasksSettings {
-	todoistApiToken: string;
-    // Optional: Add setting for date format if needed later
-    // dailyNoteFormat: string;
+    todoistApiToken: string;
+    dailyNoteFormat: string;
 }
 
 // Default settings
 const DEFAULT_SETTINGS: TodoistCompletedTasksSettings = {
-	todoistApiToken: '',
-    // dailyNoteFormat: 'YYYY-MM-DD' // Example if we add setting
+    todoistApiToken: '',
+    dailyNoteFormat: 'YYYY-MM-DD'
 }
 
 // Interface for Todoist Project structure (simplified)
@@ -20,84 +19,101 @@ interface TodoistProject {
     name: string;
 }
 
+interface TodoistProjectResponse {
+    results: TodoistProject[];
+    next_cursor: string | null;
+}
+
+// Partial interface, see https://todoist.com/api/v1/docs#tag/Tasks/operation/tasks_completed_by_completion_date_api_v1_tasks_completed_by_completion_date_get
+interface TodoistCompletedTask {
+    id: string;
+    project_id: string;
+    section_id: string;
+    labels: string[];
+    checked: boolean;
+    is_deleted: boolean;
+    content: string;
+    description: string;
+    priority: number;
+}
+
+interface TodoistCompletedTasksResponse {
+    items: TodoistCompletedTask[];
+    next_cursor: string | null;
+}
+
 // Main Plugin Class
 export default class TodoistCompletedTasksPlugin extends Plugin {
-	settings: TodoistCompletedTasksSettings;
+    settings: TodoistCompletedTasksSettings;
 
-	// --- Lifecycle Methods ---
+    // --- Lifecycle Methods ---
 
-	async onload() {
-		console.log('Loading Todoist Completed Tasks plugin');
-		await this.loadSettings();
+    async onload() {
+        await this.loadSettings();
 
-		// Updated command description
-		this.addCommand({
-			id: 'fetch-todoist-completed-tasks-for-note', // New ID for clarity
-			name: 'Fetch Todoist Tasks Completed (for Note Date or Today)',
-			editorCallback: (editor: Editor, view: MarkdownView) => {
-				this.fetchAndInsertTasksForView(editor, view); // Call the new handler
-			}
-		});
+        this.addCommand({
+            id: 'fetch-todoist-completed-tasks-for-note',
+            name: 'Insert completed tasks for day',
+            editorCallback: (editor: Editor, view: MarkdownView) => {
+                this.fetchAndInsertTasksForView(editor, view);
+            }
+        });
 
-		this.addSettingTab(new TodoistSettingTab(this.app, this));
-		console.log('Todoist Completed Tasks plugin loaded.');
-	}
+        this.addSettingTab(new TodoistSettingTab(this.app, this));
+    }
 
-	onunload() {
-		console.log('Unloading Todoist Completed Tasks plugin');
-	}
+    onunload() {
+    }
 
-	// --- Settings Management ---
+    // --- Settings Management ---
 
-	async loadSettings() {
-		this.settings = Object.assign({}, DEFAULT_SETTINGS, await this.loadData());
-	}
+    async loadSettings() {
+        this.settings = Object.assign({}, DEFAULT_SETTINGS, await this.loadData());
+    }
 
-	async saveSettings() {
-		await this.saveData(this.settings);
-	}
+    async saveSettings() {
+        await this.saveData(this.settings);
+    }
 
-	// --- Helper Function to Fetch Project Data (Unchanged) ---
+    // --- Helper Function to Fetch Project Data (Unchanged) ---
 
-	async fetchProjectData(): Promise<Map<string, string>> {
-        // ... (Keep the existing fetchProjectData function exactly as it was) ...
-		const projectsMap = new Map<string, string>();
-		if (!this.settings.todoistApiToken) {
-			throw new Error('Todoist API token is not set.');
-		}
+    async fetchProjectData(): Promise<Map<string, string>> {
+        const projectsMap = new Map<string, string>();
+        if (!this.settings.todoistApiToken) {
+            throw new Error('Todoist API token is not set.');
+        }
 
-		try {
-            // Use the Sync API to get all projects
-			const syncUrl = `https://api.todoist.com/sync/v9/sync?sync_token=*&resource_types=["projects"]`;
-			const response = await requestUrl({
-				url: syncUrl,
-				method: 'GET', // Sync API uses GET
-				headers: {
-					'Authorization': `Bearer ${this.settings.todoistApiToken}`
-				}
-			});
+        try {
+            const url = `https://todoist.com/api/v1/projects?limit=200`;
+            const response = await requestUrl({
+                url,
+                method: 'GET',
+                headers: {
+                    'Authorization': `Bearer ${this.settings.todoistApiToken}`
+                }
+            });
 
-			if (response.status !== 200) {
-				throw new Error(`Todoist Sync API error: ${response.status} - ${response.text}`);
-			}
+            if (response.status !== 200) {
+                throw new Error(`Todoist Get Projects API error: ${response.status} - ${response.text}`);
+            }
 
-			const data = response.json;
-			if (data && data.projects) {
-				data.projects.forEach((project: TodoistProject) => {
-					projectsMap.set(project.id, project.name);
-				});
-			}
+            const data = response.json as TodoistProjectResponse;
+            if (data && data.results) {
+                data.results.forEach((project: TodoistProject) => {
+                    projectsMap.set(project.id, project.name);
+                });
+            }
             return projectsMap;
 
-		} catch (error) {
-			console.error('Error fetching Todoist project data:', error);
+        } catch (error) {
+            console.error('Error fetching Todoist project data:', error);
             // Re-throw the error so the calling function knows something went wrong
-			throw new Error(`Failed to fetch project data: ${error.message}`);
-		}
-	}
+            throw new Error(`Failed to fetch project data: ${error.message}`);
+        }
+    }
 
 
-	// --- Core Functionality ---
+    // --- Core Functionality ---
 
     /**
      * Determines the target date based on the active view (daily note or today)
@@ -110,24 +126,19 @@ export default class TodoistCompletedTasksPlugin extends Plugin {
         const activeFile = view.file; // Get the file associated with the current view
 
         if (activeFile) {
-            // Try to parse date from filename assuming YYYY-MM-DD format
-            // Using moment for more robust parsing and formatting
-            const filenameDateMatch = activeFile.basename.match(/^(\d{4}-\d{2}-\d{2})$/);
-            if (filenameDateMatch) {
-                const parsedDate = moment(filenameDateMatch[1], 'YYYY-MM-DD', true); // Use strict parsing
-                if (parsedDate.isValid()) {
-                    targetDate = parsedDate;
-                    dateSource = `note filename (${targetDate.format('YYYY-MM-DD')})`;
-                }
+            // Check if the file matches the daily note format
+            const dailyNoteFormat = this.settings.dailyNoteFormat || 'YYYY-MM-DD';
+            const parseDate = moment(activeFile.basename, dailyNoteFormat, true); // Use strict parsing
+            if (parseDate.isValid()) {
+                targetDate = parseDate;
+                dateSource = `note filename (${targetDate.format(dailyNoteFormat)})`;
             }
-            // Note: Could add more complex logic here to check Daily Notes plugin settings
-            // for format and folder if needed for more robustness.
         }
 
         if (!this.settings.todoistApiToken) {
-			new Notice('Todoist API token is not set. Please configure it in the plugin settings.');
-			return;
-		}
+            new Notice('Todoist API token is not set. Please configure it in the plugin settings.');
+            return;
+        }
 
         new Notice(`Fetching Todoist tasks completed for ${dateSource}...`);
 
@@ -137,7 +148,7 @@ export default class TodoistCompletedTasksPlugin extends Plugin {
             // Notice updated in the fetchAndFormatTasksForDate function
         } catch (error) {
             console.error('Error fetching or processing Todoist data:', error);
-			new Notice(`Error: ${error.message}`);
+            new Notice(`Error: ${error.message}`);
         }
     }
 
@@ -148,22 +159,25 @@ export default class TodoistCompletedTasksPlugin extends Plugin {
      * @param targetDate The date for which to fetch completed tasks.
      * @returns A promise that resolves with the formatted Markdown string.
      */
-	async fetchAndFormatTasksForDate(targetDate: Date): Promise<string> {
-		// Ensure API token is checked here as well, although fetchAndInsertTasksForView does it too
+    async fetchAndFormatTasksForDate(targetDate: Date): Promise<string> {
+        // Ensure API token is checked here as well, although fetchAndInsertTasksForView does it too
         if (!this.settings.todoistApiToken) {
-			throw new Error('Todoist API token is not set.');
-		}
+            throw new Error('Todoist API token is not set.');
+        }
 
         // 1. Fetch Project Data
         const projects = await this.fetchProjectData();
         // No notice needed here, the calling function handles initial notice
 
-		// 2. Fetch Completed Tasks Activity for the targetDate
+        // 2. Fetch Completed Tasks Activity for the targetDate
         const targetMoment = moment(targetDate); // Use moment for formatting
         const targetDateString = targetMoment.format('YYYY-MM-DD');
 
+        const sinceDate = targetMoment.clone().startOf('day').toISOString(); // Start of the day
+        const untilDate = targetMoment.clone().endOf('day').toISOString(); // End of the day
+
         const limit = 100; // How many activity items to fetch
-        const apiUrl = `https://api.todoist.com/sync/v9/activity/get?object_type=item&event_type=completed&limit=${limit}`;
+        const apiUrl = `https://todoist.com/api/v1/tasks/completed/by_completion_date?since=${sinceDate}&until=${untilDate}&limit=${limit}`;
         // We will filter by date *after* fetching, as the API 'since'/'until' can be tricky with timezones.
         // Fetching a broader range and filtering locally is often more reliable for specific dates.
 
@@ -175,45 +189,35 @@ export default class TodoistCompletedTasksPlugin extends Plugin {
             },
         });
 
-		if (response.status !== 200) {
-			throw new Error(`Todoist Activity API error: ${response.status} - ${response.text}`);
-		}
-
-		const data = response.json;
-
-        if (!data || !data.events) {
-            throw new Error('Invalid response structure from Todoist Activity API');
+        if (response.status !== 200) {
+            throw new Error(`Todoist Activity API error: ${response.status} - ${response.text}`);
         }
 
-		// Filter events that occurred on the targetDate
-        // Important: Compare dates carefully, ignoring time if possible or handling timezones
-        const completedOnDateEvents = data.events.filter((event: any) => {
-            if (!event.event_date) return false;
-            // Parse event_date (assuming UTC or consistent format) and check if it matches targetDate
-            // Moment's isSame check is good for this
-            const eventMoment = moment.utc(event.event_date); // Assume event_date is UTC
-            return eventMoment.isSame(targetMoment, 'day');
-        });
+        const data = response.json as TodoistCompletedTasksResponse;
 
-		if (completedOnDateEvents.length === 0) {
+        if (!data || !data.items) {
+            throw new Error('Invalid response structure from Todoist completed tasks API');
+        }
+
+        if (data.items.length === 0) {
             const friendlyDate = targetMoment.isSame(moment(), 'day') ? 'today' : targetDateString;
-			new Notice(`No tasks completed on ${friendlyDate} found in Todoist.`);
-			return ""; // Return empty string if no tasks
-		}
+            new Notice(`No tasks completed on ${friendlyDate} found in Todoist.`);
+            return ""; // Return empty string if no tasks
+        }
 
         // 3. Group tasks by Project ID
-        const tasksByProject = new Map<string | null, any[]>();
-        completedOnDateEvents.forEach((event: any) => {
-            const projectId = event.parent_project_id || null;
+        const tasksByProject = new Map<string | null, TodoistCompletedTask[]>();
+        data.items.forEach((task) => {
+            const projectId = task.project_id || null;
             if (!tasksByProject.has(projectId)) {
                 tasksByProject.set(projectId, []);
             }
-            tasksByProject.get(projectId)?.push(event);
+            tasksByProject.get(projectId)?.push(task);
         });
 
-		// 4. Format tasks as Markdown list, grouped by project
+        // 4. Format tasks as Markdown list, grouped by project
         const friendlyDateString = targetMoment.isSame(moment(), 'day') ? 'Today' : targetDateString;
-		let markdownOutput = `## Tasks Completed ${friendlyDateString}\n\n`;
+        let markdownOutput = `## Tasks Completed ${friendlyDateString}\n\n`;
 
         const sortedProjectIds = Array.from(tasksByProject.keys()).sort((a, b) => {
             const nameA = a ? projects.get(a) ?? 'Unknown Project' : 'No Project';
@@ -230,50 +234,59 @@ export default class TodoistCompletedTasksPlugin extends Plugin {
             if (projectName) {
                 markdownOutput += `### ${projectName}\n`;
             } else if (projectId === null) {
-                 markdownOutput += `### No Project\n`;
+                markdownOutput += `### No Project\n`;
             } else {
                 markdownOutput += `### Unknown Project (ID: ${projectId})\n`;
             }
 
-            projectTasks.forEach((event: any) => {
-                const taskId = event.object_id;
-                const taskContent = event.extra_data?.content || `Task ID ${taskId}`;
+            projectTasks.forEach((task: TodoistCompletedTask) => {
+                const taskId = task.id;
+                const taskContent = task.content || `Task ID ${taskId}`;
                 const taskUrl = `https://todoist.com/showTask?id=${taskId}`;
                 markdownOutput += `- [${taskContent}](${taskUrl})\n`;
             });
             markdownOutput += '\n';
         }
 
-        new Notice(`Inserted ${completedOnDateEvents.length} tasks completed on ${targetDateString}.`);
+        new Notice(`Inserted ${data.items.length} tasks completed on ${targetDateString}.`);
         return markdownOutput; // Return the formatted string
-	}
+    }
 }
 
-// --- Settings Tab Class (Unchanged) ---
+// --- Settings Tab Class ---
 
 class TodoistSettingTab extends PluginSettingTab {
-	plugin: TodoistCompletedTasksPlugin;
+    plugin: TodoistCompletedTasksPlugin;
 
-	constructor(app: App, plugin: TodoistCompletedTasksPlugin) {
-		super(app, plugin);
-		this.plugin = plugin;
-	}
+    constructor(app: App, plugin: TodoistCompletedTasksPlugin) {
+        super(app, plugin);
+        this.plugin = plugin;
+    }
 
-	display(): void {
-		// ... (Keep the existing display function exactly as it was) ...
+    display(): void {
         const { containerEl } = this;
-		containerEl.empty();
-		containerEl.createEl('h2', { text: 'Todoist Completed Tasks Settings' });
+        containerEl.empty();
+        new Setting(containerEl)
+            .setName('Todoist API token')
+            .setDesc('Enter your Todoist API token (found in Todoist Settings -> Integrations -> Developer)')
+            .addText(text => text
+                .setPlaceholder('Enter your token')
+                .setValue(this.plugin.settings.todoistApiToken)
+                .onChange(async (value) => {
+                    this.plugin.settings.todoistApiToken = value.trim();
+                    await this.plugin.saveSettings();
+                }));
 
-		new Setting(containerEl)
-			.setName('Todoist API Token')
-			.setDesc('Enter your Todoist API token (found in Todoist Settings -> Integrations -> Developer)')
-			.addText(text => text
-				.setPlaceholder('Enter your token')
-				.setValue(this.plugin.settings.todoistApiToken)
-				.onChange(async (value) => {
-					this.plugin.settings.todoistApiToken = value.trim();
-					await this.plugin.saveSettings();
-				}));
-	}
+        new Setting(containerEl)
+            .setName('Daily Note Date Format')
+            .setDesc('File name format for daily notes (e.g., YYYY-MM-DD)')
+            .addText(text => text
+                .setPlaceholder('Enter date format')
+                .setValue(this.plugin.settings.dailyNoteFormat)
+                .onChange(async (value) => {
+                    this.plugin.settings.dailyNoteFormat = value.trim();
+                    await this.plugin.saveSettings();
+                }
+                ));
+    }
 }
