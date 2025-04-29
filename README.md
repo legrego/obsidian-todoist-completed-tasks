@@ -6,4 +6,4 @@ It integrates with the Daily Note plugin, to automatically insert the completed 
 
 ## Manually installing the plugin
 
-- Copy over `main.js`, `styles.css`, `manifest.json` to your vault `VaultFolder/.obsidian/plugins/your-plugin-id/`.
+- Copy over `main.js`, and `manifest.json` to your vault `VaultFolder/.obsidian/plugins/todoist-completed-tasks/`.
